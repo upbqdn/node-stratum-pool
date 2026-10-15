@@ -1,0 +1,23 @@
+{
+    "_source": "Zebra NU5 GBT, height 114, captured 2026-10-11; hash/root excerpt (transaction bytes omitted)",
+    "coinbasetxn": {
+        "hash": "4991965bc123eae9c6cad38c82b51f5145be2bd1babd79f277dff623297d4c73",
+        "authdigest": "8c4bf7c43dcb8f6e12c20f6c0f8d0124adaba6881dd33d142a611ceee9b1c10c"
+    },
+    "transactions": [
+        {
+            "hash": "995ca7be7f9f27490eb88473c5115a4106a9ab84545dbb21c6d5dfd5d4cd8dab",
+            "authdigest": "c8527f78c4e0b94a5c831909995421150cb1c0ab20ce09cfc02c5b05c2cb619a"
+        },
+        {
+            "hash": "d9be70cf93ef36326611de7e4dec801e86e48f66b9f9ea6ea2fffe3816f5153a",
+            "authdigest": "a577b39c1d6cf4693174cdf60c7edfc290d958a548be07d85421f1fc2ea940da"
+        }
+    ],
+    "defaultroots": {
+        "merkleroot": "d2ee955036b7be98f870a8ff9ad01ce0eccb163fa51de9fa1c16b0a82e849ee0",
+        "chainhistoryroot": "7d37e8aea98d937244463f22eb2f1d66df9681f49652abf285567cd6a25ce5bd",
+        "authdataroot": "37009773d3af630e0f71c906d501179af27eb1a0071b8aa9a581e7458445e015",
+        "blockcommitmentshash": "2fa54fdc6d967a73a5d20990cb3c03cfc37237b21d03943eef91a436e967032b"
+    }
+}

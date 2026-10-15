@@ -3,8 +3,24 @@ pools, each with their own daemon and stratum port :)
 
 # IMPORTANT
 
-This fork does not pay any pool fees, because `s-nomp/node-stratum-pool` does not support Zcash NU5 transactions.
-Instead, all fees are paid to the address in the node configuration.
+This fork preserves the daemon's `coinbasetxn` and ordered transaction bytes, including
+NU6.3 v6 transactions with Ironwood/Orchard bundles. It does not build a custom
+coinbase or pay pool/miner fees: rewards go to the node's configured miner address.
+Set the pool's payout in Zebra's `[mining] miner_address`; s-nomp's `address` does
+not override it. Nonempty `rewardRecipients`, nonempty `poolHex`, and enabled
+`paymentProcessing` fail at pool construction. Equihash extranonces change the
+header nonce only.
+
+Zebra's `defaultroots.merkleroot` and `blockcommitmentshash` are converted from RPC
+display order to header byte order. No auth-data/commitment recomputation is needed
+because neither the coinbase nor the transaction list is changed. Without
+`defaultroots`, the Merkle tree uses transaction IDs (`hash` in Zcash GBT), never
+`authdigest` or SHA256d of v5/v6 transaction bytes.
+
+After installing dependencies, run `node test/blockTemplate.js`. Optionally pass a
+saved Zebra GBT response: `node test/blockTemplate.js /path/to/template.json`.
+This checks serialization, not consensus acceptance; run real Regtest mining before
+using this branch. The s-nomp `zebra-instructions.md` contains the end-to-end plan.
 
 #### Notice
 This is a module for Node.js that will do nothing on its own. Unless you're a Node.js developer who would like to
@@ -29,7 +45,7 @@ Features
 * Stratum TCP socket server
 * Block template / job manager
 * P2P to get block notifications as peer node
-* Optimized generation transaction building
+* Unmodified daemon coinbase and transaction pass-through
 * Connecting to multiple daemons for redundancy
 * Process share submissions
 * Session managing for purging DDoS/flood initiated zombie workers
@@ -167,16 +183,10 @@ var pool = Stratum.createPool({
 
     "coin": myCoin,
 
-    "address": "mi4iBXbBsydtcc5yFmsff2zCFVX4XG7qJc", //Address to where block rewards are given
+    "address": "mi4iBXbBsydtcc5yFmsff2zCFVX4XG7qJc", //Legacy identity; configure payout on the daemon
 
-    /* Block rewards go to the configured pool wallet address to later be paid out to miners,
-       except for a percentage that can go to, for examples, pool operator(s) as pool fees or
-       or to donations address. Addresses or hashed public keys can be used. Here is an example
-       of rewards going to the main pool op, a pool co-owner, and NOMP donation. */
-    "rewardRecipients": {
-        "n37vuNFkXfk15uFnGoVyHZ6PYQxppD3QqK": 1.5, //1.5% goes to pool op
-        "mirj3LtZxbSTharhtXvotqtJXUY7ki5qfx": 0.5, //0.5% goes to a pool co-owner
-    },
+    // Daemon coinbase mode rejects pool-controlled fee recipients.
+    "rewardRecipients": {},
 
     "blockRefreshInterval": 1000, //How often to poll RPC daemons for new blocks, in milliseconds
 
