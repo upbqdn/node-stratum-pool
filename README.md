@@ -6,10 +6,11 @@ pools, each with their own daemon and stratum port :)
 This fork preserves the daemon's `coinbasetxn` and ordered transaction bytes, including
 NU6.3 v6 transactions with Ironwood/Orchard bundles. It does not build a custom
 coinbase or pay pool/miner fees: rewards go to the node's configured miner address.
-Set the pool's payout in Zebra's `[mining] miner_address`; s-nomp's `address` does
-not override it. Nonempty `rewardRecipients`, nonempty `poolHex`, and enabled
-`paymentProcessing` fail at pool construction. Equihash extranonces change the
-header nonce only.
+Set the pool's reward address in Zebra's `[mining] miner_address`; s-nomp's `address`
+does not override it. Nonempty `rewardRecipients` and nonempty `poolHex` fail at
+pool construction. `paymentProcessing` is allowed: s-nomp distributes matured
+rewards separately, without changing the coinbase. Equihash extranonces change
+the header nonce only.
 
 Zebra's `defaultroots.merkleroot` and `blockcommitmentshash` are converted from RPC
 display order to header byte order. No auth-data/commitment recomputation is needed

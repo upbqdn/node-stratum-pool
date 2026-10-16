@@ -103,7 +103,12 @@ if (process.argv[2]) {
     assert.strictEqual(merkle.getRoot(withoutRoots, rpc.coinbasetxn.hash), expected);
 }
 
+require('../lib/algoProperties');
 const Pool = require('../lib/pool');
-[{rewardRecipients: {address: 1}}, {poolHex: 'abcd'}, {paymentProcessing: {enabled: true}}]
+[{rewardRecipients: {address: 1}}, {poolHex: 'abcd'}]
     .forEach(options => assert.throws(() => new Pool(options), /Daemon coinbase mode/));
+assert.doesNotThrow(() => new Pool({
+    coin: {algorithm: 'equihash'},
+    paymentProcessing: {enabled: true}
+}));
 console.log('Template serialization checks passed (not consensus acceptance).');
