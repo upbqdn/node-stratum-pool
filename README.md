@@ -197,8 +197,12 @@ var pool = Stratum.createPool({
 
     /* Some miner apps will consider the pool dead/offline if it doesn't receive anything new jobs
        for around a minute, so every time we broadcast jobs, set a timeout to rebroadcast
-       in this many seconds unless we find a new job. Set to zero or remove to disable this. */
+       in this many seconds unless we find a new job. Keep this interval positive. */
     "jobRebroadcastTimeout": 55,
+
+    // Enable for nheqminer, which ignores non-clean same-parent jobs. Default: false.
+    // Recent jobs still accept shares; this only tells miners to replace their current work.
+    "cleanJobsOnTemplateUpdate": false,
 
     //instanceId: 37, //Recommend not using this because a crypto-random one will be generated
 
@@ -397,6 +401,15 @@ Conflicting parents at the same height trigger a fresh query to the active backe
 long-poll channel can report a reorg directly because its responses are ordered.
 Heartbeats rebuild from the freshest accepted template, including timestamp-only changes,
 without waiting for ordinary RPC responses. Failed or hung refreshes cannot stop heartbeats.
+
+Transaction, Merkle-root, header-version or difficulty changes on the same parent are
+broadcast immediately as new job IDs with `clean_jobs` set to false by default. Enable
+`cleanJobsOnTemplateUpdate` for miners such as nheqminer that ignore non-clean jobs.
+This sends `clean_jobs=true` without immediately invalidating previous jobs for share
+submission. The pool retains the newest 32 jobs for the current parent, including
+idle rebroadcasts; older jobs expire, and a parent change clears the entire window.
+This bounds memory when transactions change frequently during a long block interval.
+Unchanged templates do not create jobs, except for the configured idle rebroadcast.
 
 
 

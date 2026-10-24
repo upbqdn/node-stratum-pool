@@ -167,7 +167,8 @@ async function start(rpc, overrides) {
     }
     vm.runInNewContext(source, context, {filename: require.resolve('../lib/pool')});
     const pool = new context.module.exports(Object.assign({
-        coin: {name: 'Zcash', symbol: 'ZEC', algorithm: 'equihash', supportsSegwit: true},
+        coin: {name: 'Zcash', symbol: 'ZEC', algorithm: 'equihash', supportsSegwit: true,
+            parameters: {N: 48, K: 5, personalization: 'ZcashPoW'}},
         ports: {'1234': {tls: false}}, daemons: instances, blockRefreshInterval: 500,
         jobRebroadcastTimeout: 55
     }, overrides));
@@ -242,6 +243,33 @@ async function check() {
     assert.strictEqual(live.broadcasts.length, 2, 'unchanged templates do not broadcast');
     assert.strictEqual(live.pending().config.longpollid, 'opaque:timeout/id');
 
+    const previousJob = live.pool.jobManager.currentJob;
+    const fees = template(201, 'fee-update');
+    fees.transactions.push({hash: '44'.repeat(32), data: '0600008001', fee: 10000});
+    fees.defaultroots.merkleroot = '55'.repeat(32);
+    await live.reply(fees);
+    assert.strictEqual(live.broadcasts.length, 3);
+    assert.strictEqual(live.broadcasts[1][7], true, 'new parents clear old miner work');
+    assert.strictEqual(live.broadcasts[2][7], false, 'same-parent updates keep old miner work');
+    assert.strictEqual(live.broadcasts[2][8], '48_5', 'the algorithm parameters are not clean_jobs');
+    assert.strictEqual(live.broadcasts[2][9], 'ZcashPoW');
+    assert.strictEqual(live.pool.jobManager.validJobs[previousJob.jobId], previousJob);
+
+    // Idle heartbeats use the current long-poll work, not competing ordinary snapshots.
+    const rebroadcast = clone(fees);
+    rebroadcast.defaultroots.merkleroot = '66'.repeat(32);
+    live.setTemplate(rebroadcast);
+    live.pool.stratumServer.emit('broadcastTimeout');
+    await flush();
+    assert.strictEqual(live.broadcasts.length, 4);
+    assert.strictEqual(live.broadcasts[3][7], false);
+    assert.strictEqual(live.pool.jobManager.currentJob.rpcData.defaultroots.merkleroot,
+        fees.defaultroots.merkleroot);
+    live.pool.stratumServer.emit('broadcastTimeout');
+    await flush();
+    assert.strictEqual(live.broadcasts.length, 5, 'unchanged work still supports forced rebroadcast');
+    assert.strictEqual(live.broadcasts[4][7], false);
+
     await live.reply(null, {message: 'connection reset'});
     assert.strictEqual(live.pending(), null);
     assert.strictEqual(Array.from(live.timers)[0].delay, 500);
@@ -259,6 +287,25 @@ async function check() {
     assert.strictEqual(live.pending(), null);
     assert.strictEqual(Array.from(live.timers)[0].delay, 500);
     assert.strictEqual(live.pool.jobManager.currentJob.rpcData.height, 203);
+
+    for (const cleanJobs of [false, true]) {
+        const compatibility = await start(template(201, 'initial'), {
+            cleanJobsOnTemplateUpdate: cleanJobs
+        });
+        const oldJob = compatibility.pool.jobManager.currentJob;
+        await compatibility.reply(clone(fees));
+        assert.strictEqual(compatibility.broadcasts.length, 2);
+        assert.strictEqual(compatibility.broadcasts[1][7], cleanJobs);
+        assert.strictEqual(compatibility.broadcasts[1][8], '48_5');
+        assert.strictEqual(compatibility.pool.jobManager.validJobs[oldJob.jobId], oldJob);
+        assert.deepStrictEqual(compatibility.pool.jobManager.processShare(
+            oldJob.jobId, 1, 1, '', '', '', '', '', 0, 'worker', '').error,
+        [20, 'incorrect size of ntime'], 'old jobs still reach share validation in either mode');
+
+        await compatibility.reply(template(202, 'next-parent'));
+        assert.strictEqual(compatibility.broadcasts[2][7], true);
+        assert.strictEqual(compatibility.pool.jobManager.validJobs[oldJob.jobId], undefined);
+    }
 
     const configured = await start(template(200, 'id'), {longPollRefreshInterval: 120000});
     assert.strictEqual(Array.from(configured.timers)[0].delay, 120000);
@@ -606,7 +653,7 @@ const checks = process.argv[2] ? regressionChecks[process.argv[2]]() :
         .then(checkLateFailover).then(checkRealHeartbeat)
         .then(checkResponsiveDaemonPolling).then(checkAcceptedBlockRefresh);
 checks.then(() => {
-    console.log('Pool long-poll, timer backstop, retry and failover checks passed.');
+    console.log('Pool long-poll, backstop, retry, failover and clean-job compatibility checks passed.');
 }, error => {
     console.error(error);
     process.exitCode = 1;
