@@ -18,8 +18,8 @@ because neither the coinbase nor the transaction list is changed. Without
 `defaultroots`, the Merkle tree uses transaction IDs (`hash` in Zcash GBT), never
 `authdigest` or SHA256d of v5/v6 transaction bytes.
 
-After installing dependencies, run `node test/blockTemplate.js`. Optionally pass a
-saved Zebra GBT response: `node test/blockTemplate.js /path/to/template.json`.
+After installing dependencies, run `npm test`. Optionally pass a saved Zebra GBT
+response to `node test/blockTemplate.js /path/to/template.json`.
 This checks serialization, not consensus acceptance; run real Regtest mining before
 using this branch. The s-nomp `zebra-instructions.md` contains the end-to-end plan.
 
@@ -191,11 +191,18 @@ var pool = Stratum.createPool({
 
     "blockRefreshInterval": 1000, //How often to poll RPC daemons for new blocks, in milliseconds
 
+    // With daemon long polling, slow the timer backstop to this interval (default: 60000 ms).
+    "longPollRefreshInterval": 60000,
+
 
     /* Some miner apps will consider the pool dead/offline if it doesn't receive anything new jobs
        for around a minute, so every time we broadcast jobs, set a timeout to rebroadcast
-       in this many seconds unless we find a new job. Set to zero or remove to disable this. */
+       in this many seconds unless we find a new job. Keep this interval positive. */
     "jobRebroadcastTimeout": 55,
+
+    // Enable for nheqminer, which ignores non-clean same-parent jobs. Default: false.
+    // Recent jobs still accept shares; this only tells miners to replace their current work.
+    "cleanJobsOnTemplateUpdate": false,
 
     //instanceId: 37, //Recommend not using this because a crypto-random one will be generated
 
@@ -361,6 +368,49 @@ Start pool
 ```javascript
 pool.start();
 ```
+
+### Template notifications
+
+When a daemon returns an opaque `longpollid`, the pool holds one
+`getblocktemplate` request on a separate connection with a one-hour timeout.
+Each response is processed as a regular template, then the next long poll starts
+immediately. If an unchanged ID returns in under one second, the next request waits
+out the rest of that second to avoid a busy loop. The ID stays with its issuing daemon.
+
+Timer polling remains a backstop, using the greater of `blockRefreshInterval` and
+`longPollRefreshInterval` (default: 60000 milliseconds) while long polling is active.
+Without long-poll support, the existing `blockRefreshInterval` is unchanged.
+An error restores that regular interval and retries long polling after one second,
+without resetting the backstop deadline on each failed retry. A successful backstop
+response can switch to another daemon. A response without a long-poll ID stops the
+loop. Explicitly disabling timer polling still disables the backstop, but long-poll
+retries remain enabled.
+
+Both paths use the daemon's complete coinbase without a separate subsidy lookup.
+Higher-height work takes precedence regardless of which request returns first; lower
+heights are discarded. Same-parent fee updates come only from the active daemon's
+healthy long-poll channel. Ordinary refreshes take over when that channel is unavailable,
+with at most one ordinary request outstanding per daemon. Switching channels cancels
+the old long poll. Responses are processed individually, and responsive daemons remain
+pollable while a backup is hung. Block notifications and accepted local blocks cancel
+outstanding requests before refreshing. After failover, the newly selected backend is
+queried again rather than reusing an in-flight snapshot.
+
+Conflicting parents at the same height trigger a fresh query to the active backend
+(or a backup on failover), rather than applying an unordered response. The active
+long-poll channel can report a reorg directly because its responses are ordered.
+Heartbeats rebuild from the freshest accepted template, including timestamp-only changes,
+without waiting for ordinary RPC responses. Failed or hung refreshes cannot stop heartbeats.
+
+Transaction, Merkle-root, header-version or difficulty changes on the same parent are
+broadcast immediately as new job IDs with `clean_jobs` set to false by default. Enable
+`cleanJobsOnTemplateUpdate` for miners such as nheqminer that ignore non-clean jobs.
+This sends `clean_jobs=true` without immediately invalidating previous jobs for share
+submission. The pool retains the newest 32 jobs for the current parent, including
+idle rebroadcasts; older jobs expire, and a parent change clears the entire window.
+This bounds memory when transactions change frequently during a long block interval.
+Unchanged templates do not create jobs, except for the configured idle rebroadcast.
+
 
 
 Credits
