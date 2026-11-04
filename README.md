@@ -389,27 +389,30 @@ retries remain enabled.
 Both paths use the daemon's complete coinbase without a separate subsidy lookup.
 Higher-height work takes precedence regardless of which request returns first; lower
 heights are discarded. Same-parent fee updates come only from the active daemon's
-healthy long-poll channel. Ordinary refreshes take over when that channel is unavailable,
-with at most one ordinary request outstanding per daemon. Switching channels cancels
-the old long poll. Responses are processed individually, and responsive daemons remain
-pollable while a backup is hung. Block notifications and accepted local blocks cancel
+healthy long-poll channel; ordinary responses can refresh its timestamp without
+replacing its transactions or roots. Ordinary refreshes take over when that channel
+is unavailable, with at most one ordinary request outstanding per daemon. Switching
+channels cancels the old long poll. Responses are processed individually, and responsive
+daemons remain pollable while a backup is hung. Block notifications and accepted local blocks cancel
 outstanding requests before refreshing. After failover, the newly selected backend is
 queried again rather than reusing an in-flight snapshot.
 
 Conflicting parents at the same height trigger a fresh query to the active backend
 (or a backup on failover), rather than applying an unordered response. The active
 long-poll channel can report a reorg directly because its responses are ordered.
-Heartbeats rebuild from the freshest accepted template, including timestamp-only changes,
-without waiting for ordinary RPC responses. Failed or hung refreshes cannot stop heartbeats.
+Heartbeats request a fresh template and use the freshest accepted timestamp, without
+waiting for ordinary RPC responses. Failed or hung refreshes cannot stop heartbeats.
 
 Transaction, Merkle-root, header-version or difficulty changes on the same parent are
 broadcast immediately as new job IDs with `clean_jobs` set to false by default. Enable
 `cleanJobsOnTemplateUpdate` for miners such as nheqminer that ignore non-clean jobs.
 This sends `clean_jobs=true` without immediately invalidating previous jobs for share
-submission. The pool retains the newest 32 jobs for the current parent, including
-idle rebroadcasts; older jobs expire, and a parent change clears the entire window.
-This bounds memory when transactions change frequently during a long block interval.
-Unchanged templates do not create jobs, except for the configured idle rebroadcast.
+submission. The pool retains the newest 32 jobs for the current parent; older jobs
+expire, and a parent change clears the entire window. This bounds memory when work
+changes frequently during a long block interval. Timestamp-only changes create new
+jobs at idle rebroadcasts, not at every ordinary poll. If no changed work is available,
+the heartbeat resends the current job ID with `clean_jobs=false`, preserving duplicate
+share tracking and avoiding a restart of identical work, even with the clean-job override.
 
 
 

@@ -255,7 +255,7 @@ async function check() {
     assert.strictEqual(live.broadcasts[2][9], 'ZcashPoW');
     assert.strictEqual(live.pool.jobManager.validJobs[previousJob.jobId], previousJob);
 
-    // Idle heartbeats use the current long-poll work, not competing ordinary snapshots.
+    // Idle heartbeats retain long-poll work rather than competing ordinary transaction sets.
     const rebroadcast = clone(fees);
     rebroadcast.defaultroots.merkleroot = '66'.repeat(32);
     live.setTemplate(rebroadcast);
@@ -571,6 +571,50 @@ async function checkLateFailover() {
         fresh.defaultroots.merkleroot);
 }
 
+async function checkIdleRebroadcast() {
+    for (const cleanJobs of [false, true]) {
+        const initial = template(200, 'initial');
+        const live = await start(initial, {
+            blockRefreshInterval: 5000, jobRebroadcastTimeout: 2,
+            cleanJobsOnTemplateUpdate: cleanJobs
+        });
+        const manager = live.pool.jobManager;
+        const first = manager.currentJob;
+        const pending = live.pending();
+        assert.strictEqual(first.registerSubmit('nonce', 'solution'), true);
+        const refreshed = clone(initial);
+        refreshed.curtime += 10;
+        refreshed.defaultroots.merkleroot = '99'.repeat(32);
+        live.setTemplate(refreshed);
+        await live.advance(2000);
+        const current = manager.currentJob;
+        assert.strictEqual(current.rpcData.curtime, refreshed.curtime,
+            'idle refreshes must obtain fresh daemon time while long polling is healthy');
+        assert.notStrictEqual(current.jobId, first.jobId, 'fresh time creates different work');
+        assert.strictEqual(current.merkleRoot, first.merkleRoot,
+            'ordinary refreshes must not replace long-poll transactions or roots');
+        assert.strictEqual(live.broadcasts.length, 2, 'fresh work replaces the idle heartbeat');
+        assert.strictEqual(live.broadcasts[1][7], cleanJobs);
+        assert.strictEqual(current.registerSubmit('nonce', 'solution'), true);
+
+        for (let heartbeat = 0; heartbeat < 33; heartbeat++) {
+            await live.advance(2000);
+            assert.strictEqual(manager.currentJob, current,
+                'unchanged rebroadcasts must keep the current job and duplicate-share history');
+            const job = live.broadcasts[live.broadcasts.length - 1];
+            assert.strictEqual(job[0], current.jobId);
+            assert.strictEqual(job[7], false, 'unchanged work must not restart miners');
+        }
+        assert.strictEqual(current.registerSubmit('nonce', 'solution'), false);
+        assert.strictEqual(first.registerSubmit('nonce', 'solution'), false);
+        assert.deepStrictEqual(Object.keys(manager.validJobs), [first.jobId, current.jobId],
+            'idle heartbeats must not evict real jobs');
+        assert.strictEqual(live.pending(), pending, 'idle refreshes must keep the long poll');
+        assert.strictEqual(live.requests.length, 1);
+        assert.strictEqual(Array.from(live.timers)[0].delay, 60000);
+    }
+}
+
 async function checkRealHeartbeat() {
     const live = await start(template(200), {
         blockRefreshInterval: 5000, jobRebroadcastTimeout: 2
@@ -642,6 +686,7 @@ const regressionChecks = {
     streaming: checkStreamingAndNotify,
     failover: checkLateFailover,
     timer: checkRealHeartbeat,
+    idle: checkIdleRebroadcast,
     responsive: checkResponsiveDaemonPolling,
     accepted: checkAcceptedBlockRefresh
 };
@@ -650,7 +695,7 @@ const checks = process.argv[2] ? regressionChecks[process.argv[2]]() :
     check().then(checkBackstop).then(checkPacing).then(checkHeartbeat)
         .then(checkHigherBackup).then(checkChannelHandoff).then(checkSameHeightConflict)
         .then(checkOrdinarySingleFlight).then(checkStreamingAndNotify)
-        .then(checkLateFailover).then(checkRealHeartbeat)
+        .then(checkLateFailover).then(checkIdleRebroadcast).then(checkRealHeartbeat)
         .then(checkResponsiveDaemonPolling).then(checkAcceptedBlockRefresh);
 checks.then(() => {
     console.log('Pool long-poll, backstop, retry, failover and clean-job compatibility checks passed.');
