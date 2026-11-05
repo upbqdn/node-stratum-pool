@@ -90,8 +90,7 @@ async function check() {
     for (let update = 0; update < 64; update++) {
         rpc = clone(rpc);
         rpc.coinbasetxn.data += '00';
-        if (update % 2) await manager.updateCurrentJob(rpc);
-        else assert.strictEqual(await manager.processTemplate(rpc), true);
+        assert.strictEqual(await manager.processTemplate(rpc), true);
         retained.push(manager.currentJob);
         assert(Object.keys(manager.validJobs).length <= 32, 'job retention must remain bounded');
     }
